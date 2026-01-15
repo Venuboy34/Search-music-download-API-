@@ -29,10 +29,10 @@ class handler(BaseHTTPRequestHandler):
                 'skip_download': True,
                 'nocheckcertificate': True,
                 'geo_bypass': True,
+                # Use standard clients to ensure URL extraction
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['ios', 'android_music'],
-                        'player_skip': ['webpage', 'configs'],
+                        'player_client': ['android', 'ios'],
                     }
                 },
             }
@@ -40,17 +40,17 @@ class handler(BaseHTTPRequestHandler):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 
-                # Find best audio format
-                if 'formats' in info:
-                    for fmt in info['formats']:
-                        if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
-                            if fmt.get('url'):
-                                return fmt.get('url')
+                # Try to find the best audio-only format
+                formats = info.get('formats', [])
+                for fmt in formats:
+                    if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
+                        if fmt.get('url'):
+                            return fmt.get('url')
                 
-                # Fallback to any URL
+                # Fallback to the main info URL if specific audio format fails
                 return info.get('url')
                 
-        except:
+        except Exception:
             return None
     
     def do_GET(self):
@@ -73,18 +73,13 @@ class handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
             
-            # Search configuration
+            # Changed extract_flat to False to ensure thumbnails are captured
             search_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': True,
+                'extract_flat': False, 
                 'default_search': 'ytsearch',
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'web'],
-                        'player_skip': ['webpage'],
-                    }
-                },
+                'max_downloads': max_results,
             }
             
             results = []
@@ -98,9 +93,10 @@ class handler(BaseHTTPRequestHandler):
                         if entry:
                             video_id = entry.get('id')
                             
-                            # Get download URL for each result
+                            # Get direct audio URL
                             download_url = self.get_audio_url(video_id)
                             
+                            # thumbnail is now available because extract_flat is False
                             result = {
                                 'id': video_id,
                                 'title': entry.get('title'),
