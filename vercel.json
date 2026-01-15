@@ -1,18 +1,18 @@
 {
-  "functions": {
-    "api/*.py": {
-      "runtime": "python3.9",
-      "maxDuration": 60
-    }
-  },
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/search",
-      "destination": "/api/search.py"
+      "src": "api/**/*.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/search",
+      "dest": "/api/search.py"
     },
     {
-      "source": "/api/download",
-      "destination": "/api/download.py"
+      "src": "/api/download",
+      "dest": "/api/download.py"
     }
   ]
 }
