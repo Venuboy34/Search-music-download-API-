@@ -7,8 +7,12 @@
   ],
   "routes": [
     {
-      "src": "/api/music",
-      "dest": "/api/music.py"
+      "src": "/api/search",
+      "dest": "/api/search.py"
+    },
+    {
+      "src": "/api/download",
+      "dest": "/api/download.py"
     }
   ]
 }
