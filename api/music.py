@@ -29,10 +29,11 @@ class handler(BaseHTTPRequestHandler):
                 'skip_download': True,
                 'nocheckcertificate': True,
                 'geo_bypass': True,
-                # Use standard clients to ensure URL extraction
+                'cookiefile': 'cookies.txt',  # Added cookies to bypass bot detection
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'ios'],
+                        'player_client': ['ios', 'android_music'],
+                        'player_skip': ['webpage', 'configs'],
                     }
                 },
             }
@@ -40,17 +41,17 @@ class handler(BaseHTTPRequestHandler):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 
-                # Try to find the best audio-only format
-                formats = info.get('formats', [])
-                for fmt in formats:
-                    if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
-                        if fmt.get('url'):
-                            return fmt.get('url')
+                # Find best audio format
+                if 'formats' in info:
+                    for fmt in info['formats']:
+                        if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
+                            if fmt.get('url'):
+                                return fmt.get('url')
                 
-                # Fallback to the main info URL if specific audio format fails
+                # Fallback to any URL
                 return info.get('url')
                 
-        except Exception:
+        except:
             return None
     
     def do_GET(self):
@@ -73,13 +74,19 @@ class handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
             
-            # Changed extract_flat to False to ensure thumbnails are captured
+            # Search configuration
             search_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': False, 
+                'extract_flat': False, # Changed to False to ensure thumbnails are captured
                 'default_search': 'ytsearch',
-                'max_downloads': max_results,
+                'cookiefile': 'cookies.txt', # Added cookies for search as well
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web'],
+                        'player_skip': ['webpage'],
+                    }
+                },
             }
             
             results = []
@@ -93,10 +100,9 @@ class handler(BaseHTTPRequestHandler):
                         if entry:
                             video_id = entry.get('id')
                             
-                            # Get direct audio URL
+                            # Get download URL for each result
                             download_url = self.get_audio_url(video_id)
                             
-                            # thumbnail is now available because extract_flat is False
                             result = {
                                 'id': video_id,
                                 'title': entry.get('title'),
