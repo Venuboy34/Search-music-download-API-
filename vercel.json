@@ -11,8 +11,8 @@
       "dest": "/api/search.py"
     },
     {
-      "src": "/api/download",
-      "dest": "/api/download.py"
+      "src": "/api/audio",
+      "dest": "/api/audio.py"
     }
   ]
 }
