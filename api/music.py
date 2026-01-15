@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 import json
 import yt_dlp
 import os
+import shutil
 import tempfile
 
 class handler(BaseHTTPRequestHandler):
@@ -18,15 +19,25 @@ class handler(BaseHTTPRequestHandler):
         self.set_cors_headers()
         self.end_headers()
 
-    def get_cookie_path(self):
+    def setup_cookies(self):
         """
-        Locates the cookies.txt file. 
-        If in a read-only environment, ensure the path is accessible.
+        Copies cookies.txt from read-only app storage to writable /tmp storage.
+        This is required for the latest yt-dlp to handle session updates.
         """
-        # Looks for cookies.txt in the current script directory
-        return os.path.join(os.getcwd(), 'cookies.txt')
+        # The path where your file is uploaded (usually root)
+        src = os.path.join(os.getcwd(), 'cookies.txt')
+        # The only writable path in serverless environments
+        dst = os.path.join(tempfile.gettempdir(), 'cookies_writable.txt')
+        
+        if os.path.exists(src):
+            try:
+                shutil.copy2(src, dst)
+                return dst
+            except Exception:
+                return src # Fallback to original if copy fails
+        return None
 
-    def get_audio_url(self, video_id):
+    def get_audio_url(self, video_id, cookie_path):
         """Get direct audio download URL for a video"""
         try:
             video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -39,11 +50,11 @@ class handler(BaseHTTPRequestHandler):
                 'skip_download': True,
                 'nocheckcertificate': True,
                 'geo_bypass': True,
-                'cookiefile': self.get_cookie_path(),
-                # Specify a writable cache directory to avoid Errno 30
-                'cachedir': os.path.join(tempfile.gettempdir(), 'yt-dlp-cache'),
+                'cookiefile': cookie_path,
+                'cachedir': False,  # Prevents yt-dlp from creating a cache folder
                 'extractor_args': {
                     'youtube': {
+                        # Using these specific clients helps bypass bot detection
                         'player_client': ['ios', 'android_music'],
                         'player_skip': ['webpage', 'configs'],
                     }
@@ -53,6 +64,7 @@ class handler(BaseHTTPRequestHandler):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 
+                # Iterate through formats to find the best audio-only stream
                 if 'formats' in info:
                     for fmt in info['formats']:
                         if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
@@ -60,12 +72,15 @@ class handler(BaseHTTPRequestHandler):
                                 return fmt.get('url')
                 
                 return info.get('url')
-        except:
+        except Exception:
             return None
     
     def do_GET(self):
         """Handle GET requests for searching music with download URLs"""
         try:
+            # Step 1: Initialize writable cookie path
+            writable_cookie_path = self.setup_cookies()
+            
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             
@@ -77,19 +92,17 @@ class handler(BaseHTTPRequestHandler):
                 self.set_cors_headers()
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({
-                    'success': False,
-                    'error': 'Missing query parameter "q".'
-                }).encode())
+                self.wfile.write(json.dumps({'success': False, 'error': 'Query parameter "q" is required'}).encode())
                 return
             
+            # Step 2: Search Configuration
             search_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': False,
+                'extract_flat': False, # Must be False to get thumbnails
                 'default_search': 'ytsearch',
-                'cookiefile': self.get_cookie_path(),
-                'cachedir': os.path.join(tempfile.gettempdir(), 'yt-dlp-cache-search'),
+                'cookiefile': writable_cookie_path,
+                'cachedir': False,
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['android', 'web'],
@@ -108,7 +121,8 @@ class handler(BaseHTTPRequestHandler):
                     for entry in info['entries']:
                         if entry:
                             video_id = entry.get('id')
-                            download_url = self.get_audio_url(video_id)
+                            # Fetch direct audio URL for each result
+                            download_url = self.get_audio_url(video_id, writable_cookie_path)
                             
                             results.append({
                                 'id': video_id,
@@ -121,17 +135,19 @@ class handler(BaseHTTPRequestHandler):
                                 'download_url': download_url if download_url else 'Not available'
                             })
             
+            # Step 3: Send Final Response
             self.send_response(200)
             self.set_cors_headers()
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             
-            self.wfile.write(json.dumps({
+            response = {
                 'success': True,
                 'query': query,
                 'count': len(results),
                 'results': results
-            }, indent=2).encode())
+            }
+            self.wfile.write(json.dumps(response, indent=2).encode())
             
         except Exception as e:
             self.send_response(500)
