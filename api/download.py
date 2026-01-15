@@ -25,69 +25,54 @@ class handler(BaseHTTPRequestHandler):
             
             video_url = params.get('url', [''])[0]
             video_id = params.get('id', [''])[0]
-            quality = params.get('quality', ['audio'])[0]  # 'audio' or 'video'
+            quality = params.get('quality', ['audio'])[0] 
             
             if not video_url and not video_id:
                 self.send_response(400)
                 self.set_cors_headers()
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({
-                    'error': 'Missing parameter "url" or "id"'
-                }).encode())
+                self.wfile.write(json.dumps({'error': 'Missing parameter "url" or "id"'}).encode())
                 return
             
             # Construct full URL if only ID is provided
             if video_id and not video_url:
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
             
-            # Configure yt-dlp options
+            # BYPASS BOT DETECTION CONFIG
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'format': 'bestaudio/best' if quality == 'audio' else 'best',
+                'format': 'bestaudio/best' if quality == 'audio' else 'bestvideo+bestaudio/best',
                 'extract_flat': False,
+                'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'web'],
-                        'player_skip': ['webpage', 'configs'],
+                        # 'ios' is the most reliable client to bypass bot checks currently
+                        'player_client': ['ios'], 
                     }
                 },
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                }
+                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 
-                # Get available formats
+                # Filter formats to keep response size small
                 formats = []
                 if 'formats' in info:
                     for fmt in info['formats']:
                         if fmt.get('url'):
-                            format_info = {
+                            formats.append({
                                 'format_id': fmt.get('format_id'),
                                 'ext': fmt.get('ext'),
-                                'quality': fmt.get('quality'),
+                                'resolution': fmt.get('resolution'),
                                 'filesize': fmt.get('filesize'),
                                 'url': fmt.get('url'),
-                                'acodec': fmt.get('acodec'),
                                 'vcodec': fmt.get('vcodec'),
-                                'abr': fmt.get('abr'),
-                                'vbr': fmt.get('vbr'),
-                                'format_note': fmt.get('format_note'),
-                            }
-                            formats.append(format_info)
+                                'acodec': fmt.get('acodec'),
+                            })
                 
-                # Get best format URL
-                best_url = info.get('url')
-                
-                # Build response
                 response = {
                     'success': True,
                     'video_info': {
@@ -95,13 +80,10 @@ class handler(BaseHTTPRequestHandler):
                         'title': info.get('title'),
                         'duration': info.get('duration'),
                         'thumbnail': info.get('thumbnail'),
-                        'description': info.get('description'),
                         'uploader': info.get('uploader'),
-                        'view_count': info.get('view_count'),
-                        'like_count': info.get('like_count'),
                     },
-                    'download_url': best_url,
-                    'formats': formats[:10]  # Limit to first 10 formats
+                    'download_url': info.get('url'), 
+                    'formats': formats[:15] # Return top 15 formats
                 }
                 
                 self.send_response(200)
