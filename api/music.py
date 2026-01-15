@@ -2,6 +2,8 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import json
 import yt_dlp
+import os
+import tempfile
 
 class handler(BaseHTTPRequestHandler):
     def set_cors_headers(self):
@@ -15,7 +17,15 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.set_cors_headers()
         self.end_headers()
-    
+
+    def get_cookie_path(self):
+        """
+        Locates the cookies.txt file. 
+        If in a read-only environment, ensure the path is accessible.
+        """
+        # Looks for cookies.txt in the current script directory
+        return os.path.join(os.getcwd(), 'cookies.txt')
+
     def get_audio_url(self, video_id):
         """Get direct audio download URL for a video"""
         try:
@@ -29,7 +39,9 @@ class handler(BaseHTTPRequestHandler):
                 'skip_download': True,
                 'nocheckcertificate': True,
                 'geo_bypass': True,
-                'cookiefile': 'cookies.txt',  # Added cookies to bypass bot detection
+                'cookiefile': self.get_cookie_path(),
+                # Specify a writable cache directory to avoid Errno 30
+                'cachedir': os.path.join(tempfile.gettempdir(), 'yt-dlp-cache'),
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['ios', 'android_music'],
@@ -41,16 +53,13 @@ class handler(BaseHTTPRequestHandler):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 
-                # Find best audio format
                 if 'formats' in info:
                     for fmt in info['formats']:
                         if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
                             if fmt.get('url'):
                                 return fmt.get('url')
                 
-                # Fallback to any URL
                 return info.get('url')
-                
         except:
             return None
     
@@ -70,17 +79,17 @@ class handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     'success': False,
-                    'error': 'Missing query parameter "q". Usage: /api/music?q=song name&max=10'
+                    'error': 'Missing query parameter "q".'
                 }).encode())
                 return
             
-            # Search configuration
             search_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': False, # Changed to False to ensure thumbnails are captured
+                'extract_flat': False,
                 'default_search': 'ytsearch',
-                'cookiefile': 'cookies.txt', # Added cookies for search as well
+                'cookiefile': self.get_cookie_path(),
+                'cachedir': os.path.join(tempfile.gettempdir(), 'yt-dlp-cache-search'),
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['android', 'web'],
@@ -99,11 +108,9 @@ class handler(BaseHTTPRequestHandler):
                     for entry in info['entries']:
                         if entry:
                             video_id = entry.get('id')
-                            
-                            # Get download URL for each result
                             download_url = self.get_audio_url(video_id)
                             
-                            result = {
+                            results.append({
                                 'id': video_id,
                                 'title': entry.get('title'),
                                 'url': f"https://www.youtube.com/watch?v={video_id}",
@@ -112,31 +119,23 @@ class handler(BaseHTTPRequestHandler):
                                 'channel': entry.get('uploader') or entry.get('channel'),
                                 'view_count': entry.get('view_count'),
                                 'download_url': download_url if download_url else 'Not available'
-                            }
-                            
-                            results.append(result)
+                            })
             
-            # Send response
             self.send_response(200)
             self.set_cors_headers()
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             
-            response = {
+            self.wfile.write(json.dumps({
                 'success': True,
                 'query': query,
                 'count': len(results),
                 'results': results
-            }
-            
-            self.wfile.write(json.dumps(response, indent=2).encode())
+            }, indent=2).encode())
             
         except Exception as e:
             self.send_response(500)
             self.set_cors_headers()
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({
-                'success': False,
-                'error': str(e)
-            }).encode())
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
